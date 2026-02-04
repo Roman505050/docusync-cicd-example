@@ -1,0 +1,8 @@
+{
+  "label": "Docusync CLI",
+  "position": 1,
+  "link": {
+    "type": "generated-index",
+    "description": "CLI tool for syncing documentation from multiple repositories for Docusaurus"
+  }
+}
