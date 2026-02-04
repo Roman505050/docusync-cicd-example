@@ -1,0 +1,161 @@
+name: Sync Documentation
+
+on:
+  schedule:
+    # Runs at 02:00, on the 15th day of the month
+    - cron: '0 2 15 * *'
+  workflow_dispatch: # Allow manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/sync-docs.yml'
+      - 'docusync.json'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: sync-docs
+
+    permissions:
+      contents: write
+
+    env:
+        DOCUSYNC_VERSION: 2.1.0
+        BOT_NAME: GitHub Actions Bot
+        BOT_EMAIL: actions@github.com
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install docusync
+        run: pip install docusync==${{ env.DOCUSYNC_VERSION }}
+      
+      - name: Sync documentation
+        id: sync
+        # env:
+        #   # Token mapping: username -> secret name
+        #   DUCOSYNC_CI_CD_EXAMPLE_TOKEN: ${{ secrets.GH_TOKEN_DUCOSYNC_CI_CD_EXAMPLE }}
+        #   # For other users, add secrets with format: GH_TOKEN_<USERNAME>
+        #   # Example: OTHERUSER_TOKEN: ${{ secrets.GH_TOKEN_OTHERUSER }}
+        run: docusync sync --fix-md
+        continue-on-error: false
+      
+      - name: Check for changes
+        id: git-check
+        if: steps.sync.outcome == 'success'
+        run: |
+          if [ -n "$(git status --porcelain docs/)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in docs/"
+            git status --short docs/
+          else
+            echo "No changes detected"
+          fi
+      
+      - name: Build website
+        id: build
+        if: steps.sync.outcome == 'success'
+        run: pnpm run build
+      
+      - name: Commit and push changes
+        id: commit
+        if: |
+          steps.sync.outcome == 'success' &&
+          steps.build.outcome == 'success' &&
+          steps.git-check.outputs.has_changes == 'true'
+        run: |
+          git config --global user.name "${{ env.BOT_NAME }}"
+          git config --global user.email "${{ env.BOT_EMAIL }}"
+          git add docs/
+          git commit -m "docs: auto-sync documentation from source repositories"
+          git push
+
+      - name: Workflow Summary
+        if: always()
+        run: |
+          echo "## 📊 Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Sync Status
+          SYNC_OUTCOME="${{ steps.sync.outcome }}"
+          if [ "$SYNC_OUTCOME" = "success" ]; then
+            echo "✅ **Documentation Sync**: Success" >> $GITHUB_STEP_SUMMARY
+          elif [ "$SYNC_OUTCOME" = "failure" ]; then
+            echo "❌ **Documentation Sync**: Failed" >> $GITHUB_STEP_SUMMARY
+          elif [ "$SYNC_OUTCOME" = "skipped" ]; then
+            echo "⏭️ **Documentation Sync**: Skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❓ **Documentation Sync**: Unknown ($SYNC_OUTCOME)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Changes Status
+          HAS_CHANGES="${{ steps.git-check.outputs.has_changes }}"
+          CHECK_OUTCOME="${{ steps.git-check.outcome }}"
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "📝 **Changes Detected**: Yes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details><summary>Changed files</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            git status --short docs/ >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Unable to show changes" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          elif [ "$CHECK_OUTCOME" = "skipped" ]; then
+            echo "📝 **Changes Detected**: Check skipped (sync may have failed)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "📝 **Changes Detected**: No changes" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Build Status
+          BUILD_OUTCOME="${{ steps.build.outcome }}"
+          if [ "$BUILD_OUTCOME" = "success" ]; then
+            echo "🏗️ **Build**: Success" >> $GITHUB_STEP_SUMMARY
+          elif [ "$BUILD_OUTCOME" = "failure" ]; then
+            echo "❌ **Build**: Failed" >> $GITHUB_STEP_SUMMARY
+          elif [ "$BUILD_OUTCOME" = "skipped" ]; then
+            echo "⏭️ **Build**: Skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❓ **Build**: Unknown ($BUILD_OUTCOME)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Commit Status
+          COMMIT_OUTCOME="${{ steps.commit.outcome }}"
+          if [ "$COMMIT_OUTCOME" = "success" ]; then
+            echo "💾 **Commit & Push**: Success" >> $GITHUB_STEP_SUMMARY
+          elif [ "$COMMIT_OUTCOME" = "failure" ]; then
+            echo "❌ **Commit & Push**: Failed" >> $GITHUB_STEP_SUMMARY
+          elif [ "$COMMIT_OUTCOME" = "skipped" ]; then
+            echo "⏭️ **Commit & Push**: Skipped" >> $GITHUB_STEP_SUMMARY
+            if [ "$HAS_CHANGES" != "true" ]; then
+              echo "   - Reason: No changes to commit" >> $GITHUB_STEP_SUMMARY
+            elif [ "$BUILD_OUTCOME" != "success" ]; then
+              echo "   - Reason: Build failed or was skipped" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❓ **Commit & Push**: Unknown ($COMMIT_OUTCOME)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "🕐 **Workflow completed at**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY

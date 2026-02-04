@@ -1,0 +1,21 @@
+{
+    "repositories": [
+      {
+        "github_path": "Roman505050/docusync",
+        "docs_path": "docs",
+        "display_name": "Docusync CLI",
+        "position": 1,
+        "description": "CLI tool for syncing documentation from multiple repositories for Docusaurus"
+      }
+    ],
+    "paths": {
+      "temp_dir": ".temp-repos",
+      "docs_dir": "docs"
+    },
+    "git": {
+      "clone_depth": 1,
+      "default_branches": ["main", "master"],
+      "default_protocol": "https",
+      "default_pat_token_env": "DUCOSYNC_CI_CD_EXAMPLE_TOKEN"
+    }
+  }
