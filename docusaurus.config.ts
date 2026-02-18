@@ -60,9 +60,9 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'My Site',
+      title: 'Docusync CI/CD Example',
       logo: {
-        alt: 'My Site Logo',
+        alt: 'Docusync CI/CD Example Logo',
         src: 'img/logo.svg',
       },
       items: [
